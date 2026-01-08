@@ -4,6 +4,7 @@ import csv
 from pathlib import Path
 from typing import List, Dict
 
+from numpy.ma.core import mean
 from pddl_plus_parser.models import Observation, Problem, Domain
 
 TRAJECTORY_STATS_COLUMNS = [
@@ -19,7 +20,9 @@ TRAJECTORY_STATS_COLUMNS = [
     "average_number_of_predicates_in_problem",
     "min_number_of_predicates_in_problem",
     "max_number_of_predicates_in_problem",
-    "action_distribution",
+    "average_action_distribution",
+    "min_action_distribution",
+    "max_action_distribution",
 ]
 
 
@@ -58,7 +61,9 @@ def compute_trajectory_statistics(trajectories: List[Observation], problems: Lis
         ),
         "min_number_of_predicates_in_problem": min(number_of_predicates_in_problem),
         "max_number_of_predicates_in_problem": max(number_of_predicates_in_problem),
-        "action_distribution": sum(action_distribution.values()) / len(action_distribution),
+        "average_action_distribution": mean(list(action_distribution.values())) if action_distribution else 0,
+        "min_action_distribution": min(action_distribution.values()) if action_distribution else 0,
+        "max_action_distribution": max(action_distribution.values()) if action_distribution else 0,
     }
     return statistics
 

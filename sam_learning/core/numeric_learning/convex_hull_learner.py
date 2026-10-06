@@ -23,6 +23,7 @@ from sam_learning.core.numeric_learning.numeric_utils import (
     divide_span_by_common_denominator,
     remove_complex_linear_dependencies,
     construct_pddl_inequality_scheme,
+    DECIMAL_DIGITS,
 )
 
 np.set_printoptions(precision=2)
@@ -118,9 +119,19 @@ class ConvexHullLearner:
         equations = np.unique(hull.equations, axis=0)
 
         A = equations[:, : points.shape[1]]
-        b = -equations[:, points.shape[1]]
         coefficients = [prettify_coefficients(row) for row in A]
-        border_point = prettify_coefficients(b)
+
+        # Recompute each facet's border from the *rounded* coefficients against the
+        # hull's own points, so 4-decimal rounding can never exclude an observed point.
+        # The hull vertices lie on the facets (A.x == b there); rounding A and b
+        # independently would otherwise tip the plane to the wrong side of a vertex and
+        # drop it. b_i = max_x (rounded_A_i . x) keeps every hull point satisfied, and
+        # rounding the border outward (up) preserves that guarantee. hull.points is the
+        # (possibly epsilon-expanded) construction set, so the epsilon margin is kept.
+        rounded_coefficients = np.array(coefficients, dtype=float)
+        borders = (rounded_coefficients @ hull.points.T).max(axis=1)
+        scale = 10 ** DECIMAL_DIGITS
+        border_point = (np.ceil(borders * scale) / scale).tolist()
         return coefficients, border_point
 
     def _create_convex_hull_linear_inequalities(
@@ -172,7 +183,13 @@ class ConvexHullLearner:
         """
         self.logger.debug("The convex hull is single dimensional, creating min-max conditions on the new basis.")
         coefficients = [[-1], [1]]
-        border_point = prettify_coefficients([-projected_points.min(), projected_points.max()])
+        # Round both borders outward (up on the +/-1-scaled grid) so 4-decimal rounding
+        # never excludes the extreme observed points. Coefficients are exactly +/-1, so
+        # only the borders need outward rounding.
+        scale = 10 ** DECIMAL_DIGITS
+        lower = float(np.ceil(-projected_points.min() * scale) / scale)  # -x <= lower  => x >= min
+        upper = float(np.ceil(projected_points.max() * scale) / scale)   #  x <= upper  => x <= max
+        border_point = [lower, upper]
         return border_point, coefficients
 
     def _create_disjunctive_preconditions(self, previous_state_matrix: DataFrame, equality_conditions: List[str] = []) -> Precondition:

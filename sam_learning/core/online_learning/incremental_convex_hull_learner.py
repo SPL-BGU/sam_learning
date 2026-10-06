@@ -13,6 +13,7 @@ from sam_learning.core.exceptions import NotSafeActionError
 from sam_learning.core.learning_types import ConditionType, EquationSolutionType
 from sam_learning.core.numeric_learning.convex_hull_learner import ConvexHullLearner
 from sam_learning.core.numeric_learning.numeric_utils import (
+    DECIMAL_DIGITS,
     prettify_coefficients,
     construct_numeric_conditions,
     construct_projected_variable_strings,
@@ -202,9 +203,15 @@ class IncrementalConvexHullLearner(ConvexHullLearner):
         display_convex_hull(self.action_name, display_mode, self._convex_hull)
         equations = np.unique(self._convex_hull.equations, axis=0)
         A = equations[:, : self._convex_hull.points.shape[1]]
-        b = -equations[:, self._convex_hull.points.shape[1]]
         coefficients = [prettify_coefficients(row) for row in A]
-        border_point = prettify_coefficients(b)
+
+        # Recompute each facet's border from the *rounded* coefficients against the hull's
+        # own points, so rounding cannot exclude an observed point. Rounding A and b
+        # independently can tip a plane to the wrong side of a vertex that lies on it.
+        rounded_coefficients = np.array(coefficients, dtype=float)
+        borders = (rounded_coefficients @ self._convex_hull.points.T).max(axis=1)
+        scale = 10 ** DECIMAL_DIGITS
+        border_point = (np.ceil(borders * scale) / scale).tolist()
         return coefficients, border_point
 
     def _incremental_create_ch_inequalities(
@@ -234,7 +241,11 @@ class IncrementalConvexHullLearner(ConvexHullLearner):
         if self._convex_hull is None:
             self.logger.debug("The projected points are 1D, creating min-max conditions on the new base.")
             coefficients = [[-1], [1]]
-            border_point = prettify_coefficients([-projected_points.min(), projected_points.max()])
+            # Coefficients are exactly +/-1 here, so only the borders need outward rounding.
+            scale = 10 ** DECIMAL_DIGITS
+            lower = float(np.ceil(-projected_points.min() * scale) / scale)  # -x <= lower => x >= min
+            upper = float(np.ceil(projected_points.max() * scale) / scale)  #  x <= upper => x <= max
+            border_point = [lower, upper]
 
         else:
             coefficients, border_point = self._create_ch_coefficients_data(display_mode)
